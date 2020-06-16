@@ -90,6 +90,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_curve, auc, matthews_corrcoef
+from preprocessing import *
+
 
 
 # In[4]:
@@ -105,7 +107,7 @@ def load_blosum(filename):
 
 
 # In[5]:
-
+'''
 
 def load_peptide_target(filename):
     """
@@ -114,7 +116,7 @@ def load_peptide_target(filename):
     """
     df = pd.read_csv(filename, sep='\s+', usecols=[0,1], names=['peptide','target'])
     return df[df.peptide.apply(len) <= MAX_PEP_SEQ_LEN]
-
+'''
 
 # In[6]:
 
@@ -156,7 +158,7 @@ def invoke(early_stopping, loss, model, implement=False):
 # In[8]:
 
 
-MAX_PEP_SEQ_LEN = 9
+#MAX_PEP_SEQ_LEN = 9
 BINDER_THRESHOLD = 0.426
 
 
@@ -168,7 +170,7 @@ BINDER_THRESHOLD = 0.426
 
 
 blosum_file = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algo/data/BLOSUM50"
-train_data = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algo/data/A0201/f000"
+#train_data = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algo/data/A0201/f000"
 valid_data = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algo/data/A0201/f001"
 test_data = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algo/data/A0201/c000"
 
@@ -176,7 +178,7 @@ test_data = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinf
 # In[10]:
 
 
-train_raw = load_peptide_target(train_data)
+#train_raw = load_peptide_target(train_data)
 valid_raw = load_peptide_target(valid_data)
 test_raw = load_peptide_target(test_data)
 
