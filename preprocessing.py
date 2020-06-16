@@ -20,7 +20,6 @@ def load_peptide_target(filename):
 
 
 train_raw = pd.read_csv("C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algobio/data/A0201/c000", sep='\s+', usecols=[0,1], names=['peptide','target'])
-#train_raw = train_raw.fillna(0)
 for batch in files:
     train_data = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algobio/data/A0201/"
     train_data = train_data + batch
@@ -32,5 +31,5 @@ train_raw.sort_values(by=['target'], inplace=True, ascending=False)
 train_raw.drop_duplicates(inplace = True)
 train_raw.index = range(train_raw.shape[0])
 
-#duplicated = train_raw[train_raw.duplicated()]
+
     
