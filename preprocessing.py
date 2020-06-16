@@ -29,7 +29,8 @@ for batch in files:
     pre_train.iloc[0:0]
 
 train_raw.sort_values(by=['target'], inplace=True, ascending=False)
+train_raw.drop_duplicates(inplace = True)
 train_raw.index = range(train_raw.shape[0])
 
-
+#duplicated = train_raw[train_raw.duplicated()]
     
