@@ -251,7 +251,7 @@ class ANN(nn.Module):
 
         return o
 
-def train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, use_early_stopping=False, verbose=False):
+def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, use_early_stopping=False, verbose=False):
     """Train a neural network
 
     Parameters
@@ -348,7 +348,7 @@ def train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mom
             net.load_state_dict(torch.load('checkpoint.pt'))
             break
 
-    return net, optimizer, train_loss, valid_loss
+    return net, optimizer, train_loss, valid_loss, epoch
 
 
 def data_loader(X_train, X_valid, y_train, y_valid, batch_size=64):
@@ -380,14 +380,47 @@ actname2func = {
     'tanh': nn.Tanh()
 }
 
+def train_cv(X_train, X_test, y_train, y_test, batch_size=16, epochs=100, out_units=[16], optimizer='SGD', p_dropout=0, activation_function='relu', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, verbose=False, use_early_stopping=False):
+    """Wrapper function to use in nested CV"""
+
+    # convert to PyTorch datasets 
+    train_loader, valid_loader = data_loader(X_train, X_test, y_train, y_test, batch_size=batch_size)
+
+    # define neural network
+    in_features = x_train.shape[1]
+    net = ANN(in_features=in_features, out_units=out_units, n_out=1, p_dropout=p_dropout, activation=actname2func[activation_function])
+    if args.verbose:
+        print(net)
+
+
+    net, optimizer, train_loss, valid_loss, epoch = _train(
+        net=net,
+        train_loader=train_loader,
+        valid_loader=valid_loader,
+        epochs=epochs,
+        optimizer=optimizer,
+        lr=learning_rate,
+        momentum=momentum,
+        l2_reg=l2_reg,
+        n_patience=n_patience,
+        use_early_stopping=early_stopping,
+        verbose=verbose
+    )
+
+    final_train_loss = train_loss[epoch] # [-1] also works instead of indexing by epoch
+    final_eval_loss = train_loss[epoch]
+
+    return final_train_loss, final_eval_loss
+
 if __name__ == "__main__":
-    args = parse_args()
+    # args = parse_args()
 
-    # load data files
-    train_raw = load_peptide_target(args.train_data)
-    valid_raw = load_peptide_target(args.valid_data)
+    ## NOTE: Thanos, modify this below so it fits with the nested CV ## 
 
-    # encode with blosum matrix
+    # load data
+    data = load_peptide_target(data_file)
+
+    # encode with blosum matrix 
     x_train, y_train = encode_peptides(train_raw, blosum_file=args.blosum_file, batch_size=args.batch_size, n_features=9)
     x_valid, y_valid = encode_peptides(valid_raw, blosum_file=args.blosum_file, batch_size=args.batch_size, n_features=9)
 
@@ -395,38 +428,28 @@ if __name__ == "__main__":
     x_train = x_train.reshape(x_train.shape[0], -1)
     x_valid = x_valid.reshape(x_valid.shape[0], -1)
 
-    # to dataloaders
-    train_loader, valid_loader = data_loader(x_train, x_valid, y_train, y_valid, batch_size=args.batch_size)
 
-    # initialize net
-    n_features = x_train.shape[1]
-    net = ANN(in_features=n_features, out_units=args.out_units, n_out=1, p_dropout=args.p_dropout, activation=actname2func[args.activation_function])
-    if args.verbose:
-        print(net)
-    
-    # train
-    net, optimizer, train_loss, valid_loss = train(
-        net=net,
-        train_loader=train_loader,
-        valid_loader=valid_loader,
-        epochs=args.epochs,
-        optimizer=args.optimizer,
-        lr=args.learning_rate,
-        momentum=args.momentum,
-        l2_reg=args.l2_reg,
-        n_patience=args.n_patience,
-        use_early_stopping=args.early_stopping,
-        verbose=args.verbose
-    )
+    # define inner and outer partitions
+    for ... # outer
+        for ... # inner
 
-    # save
-    to_save = {
-        'args': args,
-        'model_state_dict': net.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'train_loss': train_loss,
-        'valid_loss': valid_loss
-    }
-    torch.save(to_save, args.net_file)
-    if args.verbose:
-        print("Saved results to:", args.net_file)
+            # test set of params from grid
+            # param_grid should be a dict of all combinations of parameters we want to test :)
+            for params in param_grid: 
+                inner_train_loss, inner_eval_loss = train_cv(
+                    X_train=?, 
+                    X_test=?, 
+                    y_train=?, 
+                    y_test=?,
+                    **param_grid
+                )
+
+                # save errors at param_grid
+
+        # Select optimal hyperparameter set where eval_error is best
+        best_param_grid = ?
+
+        # Train with optimal hyperparameter search
+        ... train_cv(.., **best_param_grid)
+
+        # Compute test error on outer partition
