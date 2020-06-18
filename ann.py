@@ -30,28 +30,28 @@ def parse_args():
 
     # data args
     data_args = parser.add_argument_group("Data files")
-    data_args.add_argument(
+    data_add_argument(
         '-t', '--train_data',
         type=str,
         required=True,
         help='Data with training data',
         dest='train_data'
     )
-    data_args.add_argument(
+    data_add_argument(
         '-v', '--valid_data',
         type=str,
         required=True,
         help='Data with validation data',
         dest='valid_data'
     )
-    data_args.add_argument(
+    data_add_argument(
         '--blosum-file',
         type=str,
         required=True,
         help='Blosum file',
         dest='blosum_file'
     )
-    data_args.add_argument(
+    data_add_argument(
         '-n', '--net_file',
         type=str,
         required=True,
@@ -61,7 +61,7 @@ def parse_args():
 
     # ANN specific args
     ann_args = parser.add_argument_group('ANN arguments')
-    ann_args.add_argument(
+    ann_add_argument(
         '-u', '--units',
         type=int,
         nargs='+',
@@ -69,14 +69,14 @@ def parse_args():
         required=True,
         dest='out_units'
     )
-    ann_args.add_argument(
+    ann_add_argument(
         '-p', '--p_dropout',
         type=float,
         help='Probability of droput (by default 0)',
         default=0,
         dest='p_dropout'
     )
-    ann_args.add_argument(
+    ann_add_argument(
         '-a', '--activation',
         type=str,
         help='Type of activation function in hidden layers',
@@ -87,39 +87,39 @@ def parse_args():
 
     # Training params
     train_args = parser.add_argument_group('Arguments for training the neural network')
-    train_args.add_argument(
+    train_add_argument(
         '-e', '--epochs',
         type=int,
         default=1000,
         help='Number of epochs to train the network in (by default 1000)',
         dest='epochs'
     )
-    train_args.add_argument(
+    train_add_argument(
         '-lr', '--learning_rate',
         type=float,
         default=0.01,
         help='Learning rate for optimizer (by default 0.01)',
         dest='learning_rate'
     )
-    train_args.add_argument(
+    train_add_argument(
         '-el', '--early_stopping',
         action='store_true',
         help='Use Early Stopping',
         dest='early_stopping'
     )
-    train_args.add_argument(
+    train_add_argument(
         '-np', '--n_patience',
         type=int,
         default=10,
         dest='n_patience',
         help='patience=epochs/n_patience (by default n_patience=10)'
     )
-    train_args.add_argument(
+    train_add_argument(
         '-bs', '--batch_size',
         type=int,
         default=16
     )
-    train_args.add_argument(
+    train_add_argument(
         '-o', '--optimizer',
         type=str,
         default='SGD',
@@ -127,14 +127,14 @@ def parse_args():
         choices=['SGD', 'Adam'],
         dest='optimizer'
     )
-    train_args.add_argument(
+    train_add_argument(
         '-m', '--momentum',
         type=float,
         default=0,
         help='Momentum factor (by default 0)',
         dest='momentum'
     )
-    train_args.add_argument(
+    train_add_argument(
         '-l2', '--l2_reg',
         type=float,
         default=0,
@@ -310,7 +310,7 @@ def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mo
     patience = epochs // n_patience
     early_stopping = EarlyStopping(patience=patience, verbose=verbose)
 
-    if args.verbose and use_early_stopping:
+    if verbose and use_early_stopping:
         print("Using early stopping with patience:", patience)
 
     # start main loop
@@ -389,7 +389,7 @@ def train_cv(X_train, X_test, y_train, y_test, batch_size=16, epochs=100, out_un
     # define neural network
     in_features = x_train.shape[1]
     net = ANN(in_features=in_features, out_units=out_units, n_out=1, p_dropout=p_dropout, activation=actname2func[activation_function])
-    if args.verbose:
+    if verbose:
         print(net)
 
 
@@ -421,8 +421,8 @@ if __name__ == "__main__":
     data = load_peptide_target(data_file)
 
     # encode with blosum matrix 
-    x_train, y_train = encode_peptides(train_raw, blosum_file=args.blosum_file, batch_size=args.batch_size, n_features=9)
-    x_valid, y_valid = encode_peptides(valid_raw, blosum_file=args.blosum_file, batch_size=args.batch_size, n_features=9)
+    x_train, y_train = encode_peptides(train_raw, blosum_file=blosum_file, batch_size=batch_size, n_features=9)
+    x_valid, y_valid = encode_peptides(valid_raw, blosum_file=blosum_file, batch_size=batch_size, n_features=9)
 
     # reshape
     x_train = x_train.reshape(x_train.shape[0], -1)
