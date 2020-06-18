@@ -393,7 +393,7 @@ if __name__ == "__main__":
 
     # reshape
     x_train = x_train.reshape(x_train.shape[0], -1)
-    x_valid = x_train.reshape(x_valid.shape[0], -1)
+    x_valid = x_valid.reshape(x_valid.shape[0], -1)
 
     # to dataloaders
     train_loader, valid_loader = data_loader(x_train, x_valid, y_train, y_valid, batch_size=args.batch_size)
