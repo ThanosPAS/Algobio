@@ -312,7 +312,6 @@ MINI_BATCH_SIZE = 100
 LEARNING_RATE = 0.01
 PATIENCE = EPOCHS // 10
 
-
 # ## Compile Model
 
 # In[21]:
@@ -373,7 +372,7 @@ def train():
             Xin_train, yin_train = Xr_train[train_index,:], yr_train[train_index]
             Xin_test, yin_test = Xr_train[test_index,:], yr_train[test_index]
     
-            
+            # py ann.py -d train -t test -n h 
             #Splitting the data even further to account for early stoppling
             early_Xtrain, early_Xtest, early_Ytrain, early_Ytest = train_test_split(Xin_train, yin_train, test_size=0.3, random_state=41)
     
@@ -426,7 +425,7 @@ def train():
             
     k+=1
         
-        return net, train_loss, valid_loss
+    return net, train_loss, valid_loss
 
 # In[25]:
 
