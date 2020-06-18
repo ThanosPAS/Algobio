@@ -131,3 +131,4 @@ dmypy.json
 # specific files
 ~$*.docx
 .DS_Store
+desktop.ini
