@@ -14,7 +14,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from torch.autograd import Variable
-
+from sklearn import model_selection
 from pytorchtools import EarlyStopping
 
 def parse_args():
@@ -418,7 +418,10 @@ if __name__ == "__main__":
     ## NOTE: Thanos, modify this below so it fits with the nested CV ## 
 
     # load data
-    data = load_peptide_target(data_file)
+    train_raw = load_peptide_target(args.train_data)
+    valid_raw = load_peptide_target(args.valid_data)
+    
+    
 
     # encode with blosum matrix 
     x_train, y_train = encode_peptides(train_raw, blosum_file=blosum_file, batch_size=batch_size, n_features=9)
@@ -427,29 +430,99 @@ if __name__ == "__main__":
     # reshape
     x_train = x_train.reshape(x_train.shape[0], -1)
     x_valid = x_valid.reshape(x_valid.shape[0], -1)
+    
+    
 
+    CV1 = model_selection.KFold(n_splits=K1,shuffle=True, random_state = 42)
+    CV2= model_selection.KFold(n_splits=K2,shuffle=True, random_state = 43)
 
+    
+    min_val_loss = (np.inf, -1)
+    test_loss_record = []
+    out_units_record = []
+    lr_record =[]
     # define inner and outer partitions
-    for ... # outer
-        for ... # inner
+    k=0
+    for train_index, test_index in CV1.split(train_loader):
+    
+        # extract training and test set for current CV fold
+        Xr_train = train_loader[train_index,:]
+        yr_train = train_loader[train_index]
+        Xr_test = train_loader[test_index,:]
+        yr_test = train_loader[test_index]
+        
+        inner_test_loss, outer_valid_loss = [], []
+        
+        print('Cross validation fold {0}/{1}'.format(k+1,K1))
+        
+        j=0
+        for train_index, test_index in CV2.split(Xr_train):
+        
+            # extract training and test set for current CV fold
+            Xin_train, yin_train = Xr_train[train_index,:], yr_train[train_index]
+            Xin_test, yin_test = Xr_train[test_index,:], yr_train[test_index]
+            
+            param_grid = {
+                'out_units': [out_units],
+                'lr': [lr],
+                }
 
             # test set of params from grid
             # param_grid should be a dict of all combinations of parameters we want to test :)
             for params in param_grid: 
                 inner_train_loss, inner_eval_loss = train_cv(
-                    X_train=?, 
-                    X_test=?, 
-                    y_train=?, 
-                    y_test=?,
+                    X_train=Xin_train, 
+                    X_test=Xin_test, 
+                    y_train=yin_train, 
+                    y_test=yin_test,
                     **param_grid
                 )
-
-                # save errors at param_grid
-
+                if inner_eval_loss < min_val_loss:
+                    min_val_loss = inner_eval_loss
+                    test_loss_record.append(min_val_loss)
+                    out_units_record.append(out_units) 
+                    lr_record.append(lr)
+                    
+                    # save errors at param_grid
+                    
+        loss_record_arr = np.asarray(test_loss_record)
+        min_loss = np.min(loss_record_arr)
+        out_units_arr = np.asarray(out_units_record)
+        min_error_units_index = np.where(out_units_arr == min_loss)
+        best_out_unit = out_units_arr[min_error_units_index]
+        
+        
+        lr_arr = np.asarray(lr_record)
+        min_error_lr_index = np.where(lr_arr == min_loss)
+        best_lr = lr[min_error_lr_index]
+        
+        
+        
         # Select optimal hyperparameter set where eval_error is best
-        best_param_grid = ?
+        best_param_grid = {
+                'out_units': [best_out_unit],
+                'lr': [best_lr],
+                }
 
         # Train with optimal hyperparameter search
-        ... train_cv(.., **best_param_grid)
+        outer_train_loss, outer_eval_loss = train_cv(X_train=Xr_train, 
+                    X_test=Xr_test, 
+                    y_train=yr_train, 
+                    y_test=yr_test,
+                    **best_param_grid
+                    )
+        
 
         # Compute test error on outer partition
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

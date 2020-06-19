@@ -100,7 +100,7 @@ def from_psi_blast(file_name):
 
 #main
     
-data_dir = "data/"
+data_dir = "C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algo/data/"
              
 #load alphabet
 alphabet_file = data_dir + "Matrices/alphabet"
@@ -140,7 +140,7 @@ inner_model_track = []
 for outer_iteration in range(outer_cv_partitions):
     
     #load dataset
-    dataset_file = f"A0201/f00{outer_iteration}"
+    dataset_file = f"C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algobio/data/A0201/f00{outer_iteration}"
     dataset = pd.read_csv(dataset_file, dtype=str, header=None, sep='\s+')
     
     #keep track on used peptides in test set so they are not used again in another test set
@@ -329,7 +329,7 @@ for outer_iteration in range(outer_cv_partitions):
     
     print(f'\nSelected model iteration {best_model_ind}')
     
-    eval_file = f"A0201/c00{outer_iteration}"
+    eval_file = f"C:/Users/white/Google Drive/Master's/June 2020/Algorithms in Bioinformatics/Algobio/data/A0201/c00{outer_iteration}"
     eval_dataset = pd.read_csv(eval_file, dtype=str, header=None, sep='\s+')
     
     eval_peptides = eval_dataset[0].values
