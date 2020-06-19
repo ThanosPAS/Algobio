@@ -341,9 +341,9 @@ for e in range(0, epochs):
             best_epoch = e
             best_weights[:] = weights[:]
             
-            print ("# Save network", e, "Best MSE", best_error, "PCC", best_pcc)
+            #print ("# Save network", e, "Best MSE", best_error, "PCC", best_pcc)
             
-    print("Epoch: ", e, "Gerr:", gerr, train_pcc[0], train_mse, eval_pcc[0], eval_mse)
+    #print("Epoch: ", e, "Gerr:", gerr, train_pcc[0], train_mse, eval_pcc[0], eval_mse)
 
 
 # ## Error Plot
@@ -351,37 +351,37 @@ for e in range(0, epochs):
 # In[14]:
 
 
-fig = plt.figure(figsize=(10, 10), dpi= 80)
+# fig = plt.figure(figsize=(10, 10), dpi= 80)
 
-x = np.arange(0, len(gerror_plot))
+# x = np.arange(0, len(gerror_plot))
 
-plt.subplot(2, 2, 1)
-plt.plot(x, gerror_plot)
-plt.ylabel("Global Error", fontsize=10);
-plt.xlabel("Iterations", fontsize=10);
+# plt.subplot(2, 2, 1)
+# plt.plot(x, gerror_plot)
+# plt.ylabel("Global Error", fontsize=10);
+# plt.xlabel("Iterations", fontsize=10);
 
-plt.subplot(2, 2, 2)
-plt.plot(x, mse_plot)
-plt.ylabel("MSE", fontsize=10);
-plt.xlabel("Iterations", fontsize=10);
-
-
-x = np.arange(0, len(train_mse_plot))
-
-plt.subplot(2, 2, 3)
-plt.plot(x, train_mse_plot, label="Training Set")
-plt.plot(x, eval_mse_plot, label="Evaluation Set")
-plt.ylabel("Mean Squared Error", fontsize=10);
-plt.xlabel("Iterations", fontsize=10);
-plt.legend(loc='upper right');
+# plt.subplot(2, 2, 2)
+# plt.plot(x, mse_plot)
+# plt.ylabel("MSE", fontsize=10);
+# plt.xlabel("Iterations", fontsize=10);
 
 
-plt.subplot(2, 2, 4)
-plt.plot(x, train_pcc_plot, label="Training Set")
-plt.plot(x, eval_pcc_plot, label="Evaluation Set")
-plt.ylabel("Pearson Correlation", fontsize=10);
-plt.xlabel("Iterations", fontsize=10);
-plt.legend(loc='upper left');
+# x = np.arange(0, len(train_mse_plot))
+
+# plt.subplot(2, 2, 3)
+# plt.plot(x, train_mse_plot, label="Training Set")
+# plt.plot(x, eval_mse_plot, label="Evaluation Set")
+# plt.ylabel("Mean Squared Error", fontsize=10);
+# plt.xlabel("Iterations", fontsize=10);
+# plt.legend(loc='upper right');
+
+
+# plt.subplot(2, 2, 4)
+# plt.plot(x, train_pcc_plot, label="Training Set")
+# plt.plot(x, eval_pcc_plot, label="Evaluation Set")
+# plt.ylabel("Pearson Correlation", fontsize=10);
+# plt.xlabel("Iterations", fontsize=10);
+# plt.legend(loc='upper left');
 
 
 # ## Get PSSM Matrix
@@ -448,8 +448,8 @@ def to_psi_blast(matrix):
 # In[17]:
 
 
-matrix = vector_to_matrix(weights, alphabet)
-to_psi_blast(matrix)
+#matrix = vector_to_matrix(weights, alphabet)
+#to_psi_blast(matrix)
 
 
 # In[18]:
@@ -465,25 +465,25 @@ to_psi_blast(matrix)
 # In[19]:
 
 
-evaluation_peptides = evaluation[:, 0]
-evaluation_peptides = np.array(encode(evaluation_peptides, scheme, alphabet))
+#evaluation_peptides = evaluation[:, 0]
+#evaluation_peptides = np.array(encode(evaluation_peptides, scheme, alphabet))
 
-evaluation_targets = np.array(evaluation[:, 1], dtype=float)
+# evaluation_targets = np.array(evaluation[:, 1], dtype=float)
 
-y_pred = []
-for i in range(0, len(evaluation_peptides)):
-    y_pred.append(np.dot(evaluation_peptides[i].T, weights))
+# y_pred = []
+# for i in range(0, len(evaluation_peptides)):
+    # y_pred.append(np.dot(evaluation_peptides[i].T, best_weights))
 
-y_pred = np.array(y_pred)
-
-
-# In[20]:
+# y_pred = np.array(y_pred)
 
 
-pcc = pearsonr(evaluation_targets, np.array(y_pred))
-print("PCC: ", pcc[0])
+# # In[20]:
 
-plt.scatter(y_pred, evaluation_targets);
+
+# pcc = pearsonr(evaluation_targets, np.array(y_pred))
+# print("PCC: ", pcc[0])
+
+# plt.scatter(y_pred, evaluation_targets);
 
 
 # In[21]:
