@@ -6,18 +6,19 @@ Script for training neural network
 @author: hmmartiny
 """
 
+import sys
 import argparse
 import itertools
-from operator import itemgetter
-
+import pickle
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn import model_selection
 from torch.autograd import Variable
 from torch.utils.data import DataLoader, TensorDataset
+from itertools import combinations
+from operator import itemgetter
 
 from pytorchtools import EarlyStopping
 
@@ -62,7 +63,7 @@ def invoke(early_stopping, loss, model, implement=False, verbose=False):
         early_stopping(loss, model)
         if early_stopping.early_stop:
             if verbose:
-                print("Early stopping")
+                logger.write("Early stopping")
             return True
 
 class ANN(nn.Module):
@@ -295,67 +296,122 @@ def train_cv(X, X_test, y, y_test, batch_size=16, epochs=100, out_units=[16], op
 
     return final_train_loss, final_eval_loss, net, y_pred
 
+def load_pickle(f):
+    with open(f, 'rb') as source:
+        s = pickle.load(source)
+    return s
+
+def load_partitions(files):
+    o = []
+    for f in files:
+        data = load_pickle(f)
+        o += data
+    return o
+
+def assign_cv_partition(partition_files, n_folds=5, n_test=1):
+    """Figure out all combinations of partition_files to assign as train and test data in CV"""
+
+    # how many combinations of partition_files in train part
+    n_train = n_folds - n_test
+
+    # find all combinations of the partition_files with n_train files in each
+    train_files = list(combinations(partition_files, n_train))
+
+    # convert each list element to tuple so (train_partitions, test_partition)
+    files = [
+        (x, list(set(partition_files) - set(x))) for x in train_files
+    ]
+
+    return files
+
+def data_partition(partition_files, data, blosum_file, batch_size=32, n_features=9):
+    partitions = load_partitions(partition_files)
+
+    selected_data = data.loc[data.peptide.isin(partitions), ].reset_index()
+
+    X, y = encode_peptides(selected_data, blosum_file=blosum_file, batch_size=batch_size, n_features=n_features)
+
+    # reshape X
+    X = X.reshape(X.shape[0], -1)
+
+    return X, y
+
+class Logger(object):
+    def __init__(self, logfile):
+        self.log = open(logfile, "w")
+
+    def write(self, message):
+        print(message)
+        self.log.write(message + '\n')
+    def flush(self):
+            pass
+    def close(self):
+        self.log.close()
+
 if __name__ == "__main__":
 
+    # logging file
+    logger = Logger('ann_log.txt')
+
     # load data
-    train_raw = load_peptide_target('data/A0201/A0201.dat') # NOTE: this needs to another file
-
-    # encode with blosum matrix 
-    X, y = encode_peptides(train_raw, blosum_file='data/BLOSUM50', batch_size=32, n_features=9)
-
-    # reshape
-    X = X.reshape(X.shape[0], -1)
+    data = load_peptide_target('data/A0201/A0201.dat')
 
     # param grids
     param_grids = {
-        'out_units': [4], #np.arange(4, 21, step=4),
-        'lr': [0.1],#, 0.01, 0.001],
+        'out_units': np.arange(4, 21, step=4),
+        'lr': [0.1, 0.01, 0.001],
         'optimizer': ['SGD'], # , 'Adam'],
-        'p_dropout': [0], #np.arange(0, .5, step=0.1),
+        'p_dropout': np.arange(0, .5, step=0.1),
         'epochs': [1000],
-        'use_early_stopping': [True]#, False]
+        'use_early_stopping': [True], #, False],
+        'activation_function': ['relu'], #, 'leaky_relu', 'tanh'],
+        'batch_size': [64],
+        'momentum': [0],
+        'l2_reg': [0]
     }
 
     # get all combinations of hyperparameters given in param_grids
     k, v = zip(*param_grids.items())
     params = [dict(zip(k,v)) for v in itertools.product(*v)]
 
-    # define inner and outer partitions
-    K1, K2 = 5, 5
-    CV1 = model_selection.KFold(n_splits=K1,shuffle=True, random_state = 42)
-    CV2= model_selection.KFold(n_splits=K2,shuffle=True, random_state = 42)
+    # partition files
+    partition_files = ['data/partition_3.txt', 'data/partition_2.txt', 'data/partition_6.txt', 'data/partition_5.txt', 'data/partition_4.txt']
+
+    K1, K2 = 5, 4
+    
+    # define outer partitions
+    outer_partitions = assign_cv_partition(partition_files, n_folds=K1)
     
     outer_val_losses = []
 
+    encoding_file = 'data/BLOSUM50' # could change it to data/sparse
+
     # Outer CV
-    for k, (train_index, test_index) in enumerate(CV1.split(X, y)):
+    for k, (outer_train, outer_test) in enumerate(outer_partitions):
+        logger.write('Outer CV fold {0}/{1}'.format(k+1,K1))
     
-        # extract training and test set for current CV fold
-        Xr_train = X[train_index,:]
-        yr_train = y[train_index]
-        Xr_test = X[test_index,:]
-        yr_test = y[test_index]
-        
-        inner_test_loss, outer_eval_loss = [], []
-        
-        print('Outer CV fold {0}/{1}'.format(k+1,K1))
+        # extract test set for current CV fold
+        Xr_train, yr_train = data_partition(outer_train, data=data, blosum_file=encoding_file)
+        Xr_test, yr_test = data_partition(outer_test, data=data, blosum_file=encoding_file)
+                
+        # define inner partitions in this CV fold
+        inner_partitions = assign_cv_partition(outer_train, n_folds=K2)
         
         # Inner CV
         inner_val_losses = []
-        for j, (train_index, test_index) in enumerate(CV2.split(Xr_train)):
-            print("> Inner CV fold {}/{}".format(j+1, K2))
+        for j, (inner_train, inner_test) in enumerate(inner_partitions):
+            logger.write("> Inner CV fold {}/{}".format(j+1, K2))
         
             # extract training and test set for current CV fold
-            Xin_train, yin_train = Xr_train[train_index,:], yr_train[train_index]
-            Xin_test, yin_test = Xr_train[test_index,:], yr_train[test_index]
+            Xin_train, yin_train = data_partition(inner_train, data=data, blosum_file=encoding_file)
+            Xin_test, yin_test = data_partition(inner_test, data=data, blosum_file=encoding_file)
 
-            # 
             min_val_loss = np.inf
             best_params = {}
 
             # test set of params from grid
             for param_set in params:
-                print(">> params:", param_set)
+                logger.write(">> params: {}".format(param_set))
                 inner_train_loss, inner_eval_loss, _, _ = train_cv(
                     X=Xin_train, 
                     X_test=Xin_test, 
@@ -363,7 +419,7 @@ if __name__ == "__main__":
                     y_test=yin_test,
                     **param_set
                 )
-                print(">>> Train Loss: {:.3f}, Eval Loss: {:.3f}".format(inner_train_loss, inner_eval_loss)) 
+                logger.write(">>> Train Loss: {:.3f}, Eval Loss: {:.3f}".format(inner_train_loss, inner_eval_loss)) 
                 # see if the error is better now
                 if inner_eval_loss < min_val_loss:
                     min_val_loss = inner_eval_loss
@@ -374,7 +430,7 @@ if __name__ == "__main__":
         # select best set of params from inner folds
         best_inner_loss, best_inner_params = min(inner_val_losses, key=itemgetter(0))
         
-        print("Best inner eval loss: {:.5f} with params {}".format(best_inner_loss, best_inner_params))
+        logger.write("Best inner eval loss: {:.5f} with params {}".format(best_inner_loss, best_inner_params))
 
         # Train with optimal hyperparameter search
         outer_train_loss, outer_eval_loss, net, outer_y_pred = train_cv(
@@ -387,25 +443,25 @@ if __name__ == "__main__":
         
         # Compute test error on outer partition
         outer_val_losses.append((outer_train_loss, outer_eval_loss, best_inner_params, net, outer_y_pred))
-        print("Score on outer test: Train loss: {:.3f}, Eval loss: {:.3f}".format(outer_train_loss, outer_eval_loss)) 
+        logger.write("Score on outer test: Train loss: {:.3f}, Eval loss: {:.3f}".format(outer_train_loss, outer_eval_loss)) 
     
     
     # Compute average errors for the outer folds
     o_train_loss, o_valid_loss, o_best_params, _, _ = zip(*outer_val_losses)
-    print("\nTrain loss {:.3f} (+/- {:.3f}), Eval loss {:.3f} (+/- {:.3f})".format(
+    logger.write("\nTrain loss {:.3f} (+/- {:.3f}), Eval loss {:.3f} (+/- {:.3f})".format(
         np.mean(o_train_loss), np.std(o_train_loss),
         np.mean(o_valid_loss), np.std(o_valid_loss)
     ))
 
-    # Print out results of the outer folds nicely
+    # logger out results of the outer folds nicely
     for i, outer_results in enumerate(outer_val_losses):
-        print("Outer CV {}: Train loss: {:.3f}, Eval loss: {:.3f}, params: {}".format(
+        logger.write("Outer CV {}: Train loss: {:.3f}, Eval loss: {:.3f}, params: {}".format(
             i+1, o_train_loss[i], o_valid_loss[i], o_best_params[i]
         ))
 
     # What was the set of parameters that gave the lowest error?
     best_train_loss, best_eval_loss, best_params, best_net, best_y_pred = min(outer_val_losses, key=itemgetter(1))
-    print("\nBest params:", best_params)
+    logger.write("\nBest params: {}".format(best_params))
 
     # save best results
     torch.save({
@@ -415,3 +471,5 @@ if __name__ == "__main__":
         'params': best_params,
         'y_pred': best_y_pred
     }, 'data/best_ann_res.net')
+
+    logger.close()
