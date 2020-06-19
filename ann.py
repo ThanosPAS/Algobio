@@ -360,14 +360,14 @@ if __name__ == "__main__":
     param_grids = {
         'out_units': np.arange(4, 21, step=4),
         'lr': [0.1, 0.01, 0.001],
-        'optimizer': ['SGD'], # , 'Adam'],
+        'optimizer': ['Adam'], # , 'Adam'],
         'p_dropout': np.arange(0, .5, step=0.1),
         'epochs': [1000],
-        'use_early_stopping': [True], #, False],
+        'use_early_stopping': [True, False], #, False],
         'activation_function': ['relu'], #, 'leaky_relu', 'tanh'],
         'batch_size': [64],
-        'momentum': [0],
-        'l2_reg': [0]
+        'momentum': [0, .1],
+        'l2_reg': [0, .1]
     }
 
     # get all combinations of hyperparameters given in param_grids
