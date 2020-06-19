@@ -7,143 +7,19 @@ Script for training neural network
 """
 
 import argparse
+import itertools
+from operator import itemgetter
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset
-from torch.autograd import Variable
 from sklearn import model_selection
+from torch.autograd import Variable
+from torch.utils.data import DataLoader, TensorDataset
+
 from pytorchtools import EarlyStopping
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        "Train an artificial neural network (ANN).\nExample:\n python3 ann.py -t data/A0201/f000 -v data/A0201/f001 --blosum-file data/BLOSUM50 -u 16 -e 100 -n test.net --verbose",
-        formatter_class=argparse.RawTextHelpFormatter
-        )
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        dest='verbose'
-    )
-
-    # data args
-    data_args = parser.add_argument_group("Data files")
-    data_add_argument(
-        '-t', '--train_data',
-        type=str,
-        required=True,
-        help='Data with training data',
-        dest='train_data'
-    )
-    data_add_argument(
-        '-v', '--valid_data',
-        type=str,
-        required=True,
-        help='Data with validation data',
-        dest='valid_data'
-    )
-    data_add_argument(
-        '--blosum-file',
-        type=str,
-        required=True,
-        help='Blosum file',
-        dest='blosum_file'
-    )
-    data_add_argument(
-        '-n', '--net_file',
-        type=str,
-        required=True,
-        help='Name of file to save network to',
-        dest='net_file'
-    )
-
-    # ANN specific args
-    ann_args = parser.add_argument_group('ANN arguments')
-    ann_add_argument(
-        '-u', '--units',
-        type=int,
-        nargs='+',
-        help='Number of units in each layer, e.g. two hidden layers will be -u 16 32',
-        required=True,
-        dest='out_units'
-    )
-    ann_add_argument(
-        '-p', '--p_dropout',
-        type=float,
-        help='Probability of droput (by default 0)',
-        default=0,
-        dest='p_dropout'
-    )
-    ann_add_argument(
-        '-a', '--activation',
-        type=str,
-        help='Type of activation function in hidden layers',
-        choices=['relu', 'leaky_relu', 'tanh'],
-        dest='activation_function',
-        default='relu'
-    )
-
-    # Training params
-    train_args = parser.add_argument_group('Arguments for training the neural network')
-    train_add_argument(
-        '-e', '--epochs',
-        type=int,
-        default=1000,
-        help='Number of epochs to train the network in (by default 1000)',
-        dest='epochs'
-    )
-    train_add_argument(
-        '-lr', '--learning_rate',
-        type=float,
-        default=0.01,
-        help='Learning rate for optimizer (by default 0.01)',
-        dest='learning_rate'
-    )
-    train_add_argument(
-        '-el', '--early_stopping',
-        action='store_true',
-        help='Use Early Stopping',
-        dest='early_stopping'
-    )
-    train_add_argument(
-        '-np', '--n_patience',
-        type=int,
-        default=10,
-        dest='n_patience',
-        help='patience=epochs/n_patience (by default n_patience=10)'
-    )
-    train_add_argument(
-        '-bs', '--batch_size',
-        type=int,
-        default=16
-    )
-    train_add_argument(
-        '-o', '--optimizer',
-        type=str,
-        default='SGD',
-        help='Name of optimizer (by default SGD)',
-        choices=['SGD', 'Adam'],
-        dest='optimizer'
-    )
-    train_add_argument(
-        '-m', '--momentum',
-        type=float,
-        default=0,
-        help='Momentum factor (by default 0)',
-        dest='momentum'
-    )
-    train_add_argument(
-        '-l2', '--l2_reg',
-        type=float,
-        default=0,
-        help='Weight decay (L2 penalty) for optimizer (by default 0)',
-        dest='l2_reg'
-
-    )
-    
-    return parser.parse_args()
 
 def load_blosum(filename):
     """
@@ -179,13 +55,14 @@ def encode_peptides(Xin, blosum_file, batch_size, n_features, MAX_PEP_SEQ_LEN=9)
             
     return Xout, Xin.target.values
 
-def invoke(early_stopping, loss, model, implement=False):
+def invoke(early_stopping, loss, model, implement=False, verbose=False):
     if implement == False:
         return False
     else:
         early_stopping(loss, model)
         if early_stopping.early_stop:
-            print("Early stopping")
+            if verbose:
+                print("Early stopping")
             return True
 
 class ANN(nn.Module):
@@ -251,7 +128,7 @@ class ANN(nn.Module):
 
         return o
 
-def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, use_early_stopping=False, verbose=False):
+def _train(net, train_loader, Eval_loader, epochs, optimizer='SGD', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, use_early_stopping=False, verbose=False):
     """Train a neural network
 
     Parameters
@@ -260,8 +137,8 @@ def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mo
         The neural network
     train_loader : [type]
         iterator for training data
-    valid_loader : [type]
-        iterator for validation data
+    Eval_loader : [type]
+        iterator for Evalation data
     epochs : int
         Number of epochs (iterations) to train the network
     optimizer : optim.Optimizer
@@ -287,8 +164,8 @@ def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mo
         Trained network
     train_loss : list
         Training loss per epoch
-    valid_loss : 
-        Validation loss per epoch
+    Eval_loss : 
+        Evalation loss per epoch
     """
 
     # switch to GPU if given
@@ -304,7 +181,7 @@ def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mo
     # loss function
     criterion = nn.MSELoss()
 
-    train_loss, valid_loss = [], []
+    train_loss, Eval_loss = [], []
 
     # early stopping function
     patience = epochs // n_patience
@@ -320,9 +197,9 @@ def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mo
         net.train()
 
         running_train_loss = 0
-        for x_train, y_train in train_loader:
-            pred = net(x_train)
-            loss = criterion(pred, y_train)
+        for X, y in train_loader:
+            pred = net(X)
+            loss = criterion(pred, y)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -330,49 +207,49 @@ def _train(net, train_loader, valid_loader, epochs, optimizer='SGD', lr=0.01, mo
         
         train_loss.append(running_train_loss / len(train_loader))
 
-        # validation
+        # Evalation
         net.eval()
         
-        running_valid_loss = 0
-        for x_valid, y_valid in valid_loader:
-            pred = net(x_valid)
-            loss = criterion(pred, y_valid)
-            running_valid_loss += loss.data
+        running_Eval_loss = 0
+        for x_Eval, y_Eval in Eval_loader:
+            pred = net(x_Eval)
+            loss = criterion(pred, y_Eval)
+            running_Eval_loss += loss.data
         
-        valid_loss.append(running_valid_loss / len(valid_loader))
+        Eval_loss.append(running_Eval_loss / len(Eval_loader))
 
         if verbose:
-            print("Epoch {}: Train loss: {:.5f} Valid loss: {:.5f}".format(epoch+1, train_loss[epoch], valid_loss[epoch]))
+            print("Epoch {}: Train loss: {:.5f} Eval loss: {:.5f}".format(epoch+1, train_loss[epoch], Eval_loss[epoch]))
 
-        if invoke(early_stopping, valid_loss[-1], net, implement=use_early_stopping):
+        if invoke(early_stopping, Eval_loss[-1], net, implement=use_early_stopping):
             net.load_state_dict(torch.load('checkpoint.pt'))
             break
 
-    return net, optimizer, train_loss, valid_loss, epoch
+    return net, optimizer, train_loss, Eval_loss, epoch
 
 
-def data_loader(X_train, X_valid, y_train, y_valid, batch_size=64):
+def data_loader(X, X_Eval, y, y_Eval, batch_size=64):
     """Convert numpy arrays into iterable dataloaders with tensors"""
 
     # convert to tensors
-    X_train = torch.from_numpy(X_train.astype('float32'))
-    X_valid = torch.from_numpy(X_valid.astype('float32'))
-    y_train = torch.from_numpy(y_train.astype('float32')).view(-1, 1)
-    y_valid = torch.from_numpy(y_valid.astype('float32')).view(-1, 1)
+    X = torch.from_numpy(X.astype('float32'))
+    X_Eval = torch.from_numpy(X_Eval.astype('float32'))
+    y = torch.from_numpy(y.astype('float32')).view(-1, 1)
+    y_Eval = torch.from_numpy(y_Eval.astype('float32')).view(-1, 1)
 
     # define loaders
     train_loader = DataLoader(
-        dataset=TensorDataset(X_train, y_train),
+        dataset=TensorDataset(X, y),
         batch_size=batch_size,
         shuffle=True
     )
-    valid_loader = DataLoader(
-        dataset=TensorDataset(X_valid, y_valid),
+    Eval_loader = DataLoader(
+        dataset=TensorDataset(X_Eval, y_Eval),
         batch_size=batch_size,
         shuffle=True
     )
 
-    return train_loader, valid_loader
+    return train_loader, Eval_loader
 
 actname2func = {
     'relu': nn.ReLU(),
@@ -380,149 +257,155 @@ actname2func = {
     'tanh': nn.Tanh()
 }
 
-def train_cv(X_train, X_test, y_train, y_test, batch_size=16, epochs=100, out_units=[16], optimizer='SGD', p_dropout=0, activation_function='relu', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, verbose=False, use_early_stopping=False):
+def train_cv(X, X_test, y, y_test, batch_size=16, epochs=100, out_units=[16], optimizer='SGD', p_dropout=0, activation_function='relu', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, verbose=False, use_early_stopping=False):
     """Wrapper function to use in nested CV"""
 
+    if not isinstance(out_units, list):
+        out_units = [out_units]
+
     # convert to PyTorch datasets 
-    train_loader, valid_loader = data_loader(X_train, X_test, y_train, y_test, batch_size=batch_size)
+    train_loader, Eval_loader = data_loader(X, X_test, y, y_test, batch_size=batch_size)
 
     # define neural network
-    in_features = x_train.shape[1]
+    in_features = X.shape[1]
     net = ANN(in_features=in_features, out_units=out_units, n_out=1, p_dropout=p_dropout, activation=actname2func[activation_function])
     if verbose:
         print(net)
 
 
-    net, optimizer, train_loss, valid_loss, epoch = _train(
+    net, optimizer, train_loss, Eval_loss, epoch = _train(
         net=net,
         train_loader=train_loader,
-        valid_loader=valid_loader,
+        Eval_loader=Eval_loader,
         epochs=epochs,
         optimizer=optimizer,
-        lr=learning_rate,
+        lr=lr,
         momentum=momentum,
         l2_reg=l2_reg,
         n_patience=n_patience,
-        use_early_stopping=early_stopping,
-        verbose=verbose
+        use_early_stopping=use_early_stopping,
+        verbose=verbose,
+        use_cuda=torch.cuda.is_available()
     )
 
     final_train_loss = train_loss[epoch] # [-1] also works instead of indexing by epoch
-    final_eval_loss = train_loss[epoch]
+    final_eval_loss = Eval_loss[epoch]
 
-    return final_train_loss, final_eval_loss
+    return final_train_loss, final_eval_loss, net
 
 if __name__ == "__main__":
-    # args = parse_args()
-
-    ## NOTE: Thanos, modify this below so it fits with the nested CV ## 
 
     # load data
-    train_raw = load_peptide_target(args.train_data)
-    valid_raw = load_peptide_target(args.valid_data)
-    
-    
+    train_raw = load_peptide_target('data/A0201/A0201.dat')
 
     # encode with blosum matrix 
-    x_train, y_train = encode_peptides(train_raw, blosum_file=blosum_file, batch_size=batch_size, n_features=9)
-    x_valid, y_valid = encode_peptides(valid_raw, blosum_file=blosum_file, batch_size=batch_size, n_features=9)
+    X, y = encode_peptides(train_raw, blosum_file='data/BLOSUM50', batch_size=32, n_features=9)
+    #x_Eval, y_Eval = encode_peptides(Eval_raw, blosum_file='data/BLOSUM50', batch_size=32, n_features=9)
 
     # reshape
-    x_train = x_train.reshape(x_train.shape[0], -1)
-    x_valid = x_valid.reshape(x_valid.shape[0], -1)
-    
-    
+    X = X.reshape(X.shape[0], -1)
+    #x_Eval = x_Eval.reshape(x_Eval.shape[0], -1)    
 
-    CV1 = model_selection.KFold(n_splits=K1,shuffle=True, random_state = 42)
-    CV2= model_selection.KFold(n_splits=K2,shuffle=True, random_state = 43)
+    # param grids
+    param_grids = {
+        'out_units': [4], #np.arange(4, 21, step=4),
+        'lr': [0.1],#, 0.01, 0.001],
+        'optimizer': ['SGD'], # , 'Adam'],
+        'p_dropout': [0], #np.arange(0, .5, step=0.1),
+        'epochs': [1000],
+        'use_early_stopping': [True]#, False]
+    }
+    # get all combinations of hyperparameters given in param_grids
+    k, v = zip(*param_grids.items())
+    params = [dict(zip(k,v)) for v in itertools.product(*v)]
 
-    
-    min_val_loss = (np.inf, -1)
-    test_loss_record = []
-    out_units_record = []
-    lr_record =[]
     # define inner and outer partitions
-    k=0
-    for train_index, test_index in CV1.split(train_loader):
+    K1, K2 = 2, 2
+    CV1 = model_selection.KFold(n_splits=K1,shuffle=True, random_state = 42)
+    CV2= model_selection.KFold(n_splits=K2,shuffle=True, random_state = 42)
+    
+    outer_val_losses = []
+
+    # Outer CV
+    for k, (train_index, test_index) in enumerate(CV1.split(X, y)):
     
         # extract training and test set for current CV fold
-        Xr_train = train_loader[train_index,:]
-        yr_train = train_loader[train_index]
-        Xr_test = train_loader[test_index,:]
-        yr_test = train_loader[test_index]
+        Xr_train = X[train_index,:]
+        yr_train = y[train_index]
+        Xr_test = X[test_index,:]
+        yr_test = y[test_index]
         
-        inner_test_loss, outer_valid_loss = [], []
+        inner_test_loss, outer_Eval_loss = [], []
         
-        print('Cross validation fold {0}/{1}'.format(k+1,K1))
+        print('Outer CV fold {0}/{1}'.format(k+1,K1))
         
-        j=0
-        for train_index, test_index in CV2.split(Xr_train):
+        # Inner CV
+        inner_val_losses = []
+        for j, (train_index, test_index) in enumerate(CV2.split(Xr_train)):
+            print("> Inner CV fold {}/{}".format(j+1, K2))
         
             # extract training and test set for current CV fold
             Xin_train, yin_train = Xr_train[train_index,:], yr_train[train_index]
             Xin_test, yin_test = Xr_train[test_index,:], yr_train[test_index]
-            
-            param_grid = {
-                'out_units': [out_units],
-                'lr': [lr],
-                }
+
+            # 
+            min_val_loss = np.inf
+            best_params = {}
 
             # test set of params from grid
-            # param_grid should be a dict of all combinations of parameters we want to test :)
-            for params in param_grid: 
-                inner_train_loss, inner_eval_loss = train_cv(
-                    X_train=Xin_train, 
+            for param_set in params:
+                print(">> params:", param_set)
+                inner_train_loss, inner_eval_loss, _ = train_cv(
+                    X=Xin_train, 
                     X_test=Xin_test, 
-                    y_train=yin_train, 
+                    y=yin_train, 
                     y_test=yin_test,
-                    **param_grid
+                    **param_set
                 )
+                print(">>> Train Loss: {:.3f}, Eval Loss: {:.3f}".format(inner_train_loss, inner_eval_loss)) 
+                # see if the error is better now
                 if inner_eval_loss < min_val_loss:
                     min_val_loss = inner_eval_loss
-                    test_loss_record.append(min_val_loss)
-                    out_units_record.append(out_units) 
-                    lr_record.append(lr)
-                    
-                    # save errors at param_grid
-                    
-        loss_record_arr = np.asarray(test_loss_record)
-        min_loss = np.min(loss_record_arr)
-        out_units_arr = np.asarray(out_units_record)
-        min_error_units_index = np.where(out_units_arr == min_loss)
-        best_out_unit = out_units_arr[min_error_units_index]
+                    best_params = param_set
+            
+            inner_val_losses.append((min_val_loss, best_params))
+
+        # select best set of params from inner folds
+        best_inner_loss, best_inner_params = min(inner_val_losses, key=itemgetter(0))
         
-        
-        lr_arr = np.asarray(lr_record)
-        min_error_lr_index = np.where(lr_arr == min_loss)
-        best_lr = lr[min_error_lr_index]
-        
-        
-        
-        # Select optimal hyperparameter set where eval_error is best
-        best_param_grid = {
-                'out_units': [best_out_unit],
-                'lr': [best_lr],
-                }
+        print("Best inner eval loss: {:.5f} with params {}".format(best_inner_loss, best_inner_params))
 
         # Train with optimal hyperparameter search
-        outer_train_loss, outer_eval_loss = train_cv(X_train=Xr_train, 
-                    X_test=Xr_test, 
-                    y_train=yr_train, 
-                    y_test=yr_test,
-                    **best_param_grid
-                    )
+        outer_train_loss, outer_eval_loss, net = train_cv(
+            X=Xr_train, 
+            X_test=Xr_test, 
+            y=yr_train, 
+            y_test=yr_test,
+            **best_inner_params
+            )
         
-
         # Compute test error on outer partition
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        outer_val_losses.append((outer_train_loss, outer_eval_loss, best_inner_params, net))
+        print("Score on outer test: Train loss: {:.3f}, Eval loss: {:.3f}".format(outer_train_loss, outer_eval_loss)) 
+    
+    
+    # Compute average errors for the outer folds
+    o_train_loss, o_valid_loss, o_best_params, _ = zip(*outer_val_losses)
+    print("\nTrain loss {:.3f} (+/- {:.3f}), Eval loss {:.3f} (+/- {:.3f})".format(
+        np.mean(o_train_loss), np.std(o_train_loss),
+        np.mean(o_valid_loss), np.std(o_valid_loss)
+    ))
+
+    # What was the set of parameters that gave the lowest error?
+    best_results = min(outer_val_losses, key=itemgetter(1))
+    print("Best params:", best_results[2])
+
+    # Print out results of the outer folds nicely
+    for i, outer_results in enumerate(outer_val_losses):
+        print("Outer CV {}: Train loss: {:.3f}, Eval loss: {:.3f}, params: {}".format(
+            i+1, o_train_loss[i], o_valid_loss[i], o_best_params[i]
+        ))
+
+    # save best net
+    best_net = best_results[3]
+    torch.save(best_net, 'data/best_ann.net')
