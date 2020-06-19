@@ -128,7 +128,7 @@ class ANN(nn.Module):
 
         return o
 
-def _train(net, train_loader, Eval_loader, epochs, optimizer='SGD', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, use_early_stopping=False, verbose=False):
+def _train(net, train_loader, eval_loader, epochs, optimizer='SGD', lr=0.01, momentum=0, l2_reg=0, use_cuda=False, n_patience=10, use_early_stopping=False, verbose=False):
     """Train a neural network
 
     Parameters
@@ -137,7 +137,7 @@ def _train(net, train_loader, Eval_loader, epochs, optimizer='SGD', lr=0.01, mom
         The neural network
     train_loader : [type]
         iterator for training data
-    Eval_loader : [type]
+    eval_loader : [type]
         iterator for Evalation data
     epochs : int
         Number of epochs (iterations) to train the network
@@ -164,7 +164,7 @@ def _train(net, train_loader, Eval_loader, epochs, optimizer='SGD', lr=0.01, mom
         Trained network
     train_loss : list
         Training loss per epoch
-    Eval_loss : 
+    eval_loss : 
         Evalation loss per epoch
     """
 
@@ -181,7 +181,7 @@ def _train(net, train_loader, Eval_loader, epochs, optimizer='SGD', lr=0.01, mom
     # loss function
     criterion = nn.MSELoss()
 
-    train_loss, Eval_loss = [], []
+    train_loss, eval_loss = [], []
 
     # early stopping function
     patience = epochs // n_patience
@@ -210,22 +210,22 @@ def _train(net, train_loader, Eval_loader, epochs, optimizer='SGD', lr=0.01, mom
         # Evalation
         net.eval()
         
-        running_Eval_loss = 0
-        for x_Eval, y_Eval in Eval_loader:
+        running_eval_loss = 0
+        for x_Eval, y_Eval in eval_loader:
             pred = net(x_Eval)
             loss = criterion(pred, y_Eval)
-            running_Eval_loss += loss.data
+            running_eval_loss += loss.data
         
-        Eval_loss.append(running_Eval_loss / len(Eval_loader))
+        eval_loss.append(running_eval_loss / len(eval_loader))
 
         if verbose:
-            print("Epoch {}: Train loss: {:.5f} Eval loss: {:.5f}".format(epoch+1, train_loss[epoch], Eval_loss[epoch]))
+            print("Epoch {}: Train loss: {:.5f} Eval loss: {:.5f}".format(epoch+1, train_loss[epoch], eval_loss[epoch]))
 
-        if invoke(early_stopping, Eval_loss[-1], net, implement=use_early_stopping):
+        if invoke(early_stopping, eval_loss[-1], net, implement=use_early_stopping):
             net.load_state_dict(torch.load('checkpoint.pt'))
             break
 
-    return net, optimizer, train_loss, Eval_loss, epoch
+    return net, optimizer, train_loss, eval_loss, epoch
 
 
 def data_loader(X, X_Eval, y, y_Eval, batch_size=64):
@@ -243,13 +243,13 @@ def data_loader(X, X_Eval, y, y_Eval, batch_size=64):
         batch_size=batch_size,
         shuffle=True
     )
-    Eval_loader = DataLoader(
+    eval_loader = DataLoader(
         dataset=TensorDataset(X_Eval, y_Eval),
         batch_size=batch_size,
         shuffle=True
     )
 
-    return train_loader, Eval_loader
+    return train_loader, eval_loader
 
 actname2func = {
     'relu': nn.ReLU(),
@@ -264,7 +264,7 @@ def train_cv(X, X_test, y, y_test, batch_size=16, epochs=100, out_units=[16], op
         out_units = [out_units]
 
     # convert to PyTorch datasets 
-    train_loader, Eval_loader = data_loader(X, X_test, y, y_test, batch_size=batch_size)
+    train_loader, eval_loader = data_loader(X, X_test, y, y_test, batch_size=batch_size)
 
     # define neural network
     in_features = X.shape[1]
@@ -273,10 +273,10 @@ def train_cv(X, X_test, y, y_test, batch_size=16, epochs=100, out_units=[16], op
         print(net)
 
 
-    net, optimizer, train_loss, Eval_loss, epoch = _train(
+    net, optimizer, train_loss, eval_loss, epoch = _train(
         net=net,
         train_loader=train_loader,
-        Eval_loader=Eval_loader,
+        eval_loader=eval_loader,
         epochs=epochs,
         optimizer=optimizer,
         lr=lr,
@@ -289,22 +289,22 @@ def train_cv(X, X_test, y, y_test, batch_size=16, epochs=100, out_units=[16], op
     )
 
     final_train_loss = train_loss[epoch] # [-1] also works instead of indexing by epoch
-    final_eval_loss = Eval_loss[epoch]
+    final_eval_loss = eval_loss[epoch]
 
-    return final_train_loss, final_eval_loss, net
+    y_pred = net(torch.from_numpy(X_test.astype('float32'))).data.numpy()
+
+    return final_train_loss, final_eval_loss, net, y_pred
 
 if __name__ == "__main__":
 
     # load data
-    train_raw = load_peptide_target('data/A0201/A0201.dat')
+    train_raw = load_peptide_target('data/A0201/A0201.dat') # NOTE: this needs to another file
 
     # encode with blosum matrix 
     X, y = encode_peptides(train_raw, blosum_file='data/BLOSUM50', batch_size=32, n_features=9)
-    #x_Eval, y_Eval = encode_peptides(Eval_raw, blosum_file='data/BLOSUM50', batch_size=32, n_features=9)
 
     # reshape
     X = X.reshape(X.shape[0], -1)
-    #x_Eval = x_Eval.reshape(x_Eval.shape[0], -1)    
 
     # param grids
     param_grids = {
@@ -315,12 +315,13 @@ if __name__ == "__main__":
         'epochs': [1000],
         'use_early_stopping': [True]#, False]
     }
+
     # get all combinations of hyperparameters given in param_grids
     k, v = zip(*param_grids.items())
     params = [dict(zip(k,v)) for v in itertools.product(*v)]
 
     # define inner and outer partitions
-    K1, K2 = 2, 2
+    K1, K2 = 5, 5
     CV1 = model_selection.KFold(n_splits=K1,shuffle=True, random_state = 42)
     CV2= model_selection.KFold(n_splits=K2,shuffle=True, random_state = 42)
     
@@ -335,7 +336,7 @@ if __name__ == "__main__":
         Xr_test = X[test_index,:]
         yr_test = y[test_index]
         
-        inner_test_loss, outer_Eval_loss = [], []
+        inner_test_loss, outer_eval_loss = [], []
         
         print('Outer CV fold {0}/{1}'.format(k+1,K1))
         
@@ -355,7 +356,7 @@ if __name__ == "__main__":
             # test set of params from grid
             for param_set in params:
                 print(">> params:", param_set)
-                inner_train_loss, inner_eval_loss, _ = train_cv(
+                inner_train_loss, inner_eval_loss, _, _ = train_cv(
                     X=Xin_train, 
                     X_test=Xin_test, 
                     y=yin_train, 
@@ -376,7 +377,7 @@ if __name__ == "__main__":
         print("Best inner eval loss: {:.5f} with params {}".format(best_inner_loss, best_inner_params))
 
         # Train with optimal hyperparameter search
-        outer_train_loss, outer_eval_loss, net = train_cv(
+        outer_train_loss, outer_eval_loss, net, outer_y_pred = train_cv(
             X=Xr_train, 
             X_test=Xr_test, 
             y=yr_train, 
@@ -385,20 +386,16 @@ if __name__ == "__main__":
             )
         
         # Compute test error on outer partition
-        outer_val_losses.append((outer_train_loss, outer_eval_loss, best_inner_params, net))
+        outer_val_losses.append((outer_train_loss, outer_eval_loss, best_inner_params, net, outer_y_pred))
         print("Score on outer test: Train loss: {:.3f}, Eval loss: {:.3f}".format(outer_train_loss, outer_eval_loss)) 
     
     
     # Compute average errors for the outer folds
-    o_train_loss, o_valid_loss, o_best_params, _ = zip(*outer_val_losses)
+    o_train_loss, o_valid_loss, o_best_params, _, _ = zip(*outer_val_losses)
     print("\nTrain loss {:.3f} (+/- {:.3f}), Eval loss {:.3f} (+/- {:.3f})".format(
         np.mean(o_train_loss), np.std(o_train_loss),
         np.mean(o_valid_loss), np.std(o_valid_loss)
     ))
-
-    # What was the set of parameters that gave the lowest error?
-    best_results = min(outer_val_losses, key=itemgetter(1))
-    print("Best params:", best_results[2])
 
     # Print out results of the outer folds nicely
     for i, outer_results in enumerate(outer_val_losses):
@@ -406,6 +403,15 @@ if __name__ == "__main__":
             i+1, o_train_loss[i], o_valid_loss[i], o_best_params[i]
         ))
 
-    # save best net
-    best_net = best_results[3]
-    torch.save(best_net, 'data/best_ann.net')
+    # What was the set of parameters that gave the lowest error?
+    best_train_loss, best_eval_loss, best_params, best_net, best_y_pred = min(outer_val_losses, key=itemgetter(1))
+    print("\nBest params:", best_params)
+
+    # save best results
+    torch.save({
+        'net': best_net.state_dict(),
+        'train_loss': best_train_loss,
+        'eval_loss': best_eval_loss,
+        'params': best_params,
+        'y_pred': best_y_pred
+    }, 'data/best_ann_res.net')
