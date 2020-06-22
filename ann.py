@@ -121,11 +121,13 @@ class ANN(nn.Module):
 
         # add final output layer
         self.fc_out = nn.Linear(self.out_units[-1], self.n_out)
+        self.sigmoid = nn.Sigmoid()
     
     def forward(self, x): # (batch_size, in_units)
 
         o = self.fc(x) # (batch_size, out_units)
         o = self.fc_out(o) # (batch_size, n_out)
+        o = self.sigmoid(o)
 
         return o
 
