@@ -12,10 +12,52 @@ import math
 import numpy as np
 import pandas as pd
 import random
-from scipy.stats import pearsonr
-from sklearn.preprocessing import MinMaxScaler
+from scipy.stats import pearsonr, spearmanr
 import matplotlib.pyplot as plt
+from scipy.stats import mode
+from argparse import ArgumentParser
 
+
+parser = ArgumentParser(description="Construction of PSSM matrix with beta optimization")
+parser.add_argument("-bs", action="store", dest="bs", type=int, default = 50, help="Beta lower range")
+parser.add_argument("-be", action="store", dest="be", type=int, default = 250, help="Beta upper range")
+parser.add_argument("-bstep", action="store", dest="bstep", type=int, default = 1, help="Step of incrementing beta")
+parser.add_argument("-as", action="store", dest="als", type=int, default = 50, help="Alpha lower range")
+parser.add_argument("-ae", action="store", dest="ale", type=int, default = 250, help="Alpha upper range")
+parser.add_argument("-astep", action="store", dest="alstep", type=int, default = 1, help="Step of incrementing alpha")
+parser.add_argument("-outdir", action="store", dest="model_out", type=str, help="Folder to save matrices")
+
+
+args = parser.parse_args()
+
+bstart = args.bs
+bend = args.be
+bstep = args.bstep
+astart = args.als
+aend = args.ale
+astep = args.alstep
+out = args.model_out
+
+
+#only param to optimize
+beta_vals = list(range(bstart,bend,bstep))
+alpha_vals = list(range(astart,aend,astep))
+
+vals = []
+for i in beta_vals:
+    for k in alpha_vals:
+        vals.append((i, k))
+
+outer_cv_partitions = 5
+inner_cv_partitions = 4
+
+data_dir = "../Algo/data/"
+
+model_out_prefix = out + 'PPSM_mat'
+#model_out_prefix = 'PSSM_out/PPSM_mat' 
+
+#neff is equal to number of clusters, as sum(w) of peptides is cluster = 1
+neff = 100
 
 #evaluation
 def score_peptide(peptide, matrix):
@@ -70,7 +112,7 @@ def to_psi_blast_file(matrix, file_name):
 
 
 #load matrix from PSI-BLAST format
-def from_psi_blast(file_name):
+def from_psi_blast(file_name, peptide_length):
 
     f = open(file_name, "r")
     
@@ -98,9 +140,96 @@ def from_psi_blast(file_name):
     return matrix
 
 
-#main
+def train(train_peptides, train_targets, test_peptides, test_targets, beta, alpha, opt):
     
-data_dir = "data/"
+    
+    peptide_length = len(train_peptides[0])
+    for i in range(0, len(train_peptides)):
+        if len(train_peptides[i]) != peptide_length:
+            print("Error, peptides differ in length!")
+        
+        
+    #count matrix
+    c_matrix = initialize_matrix(peptide_length, alphabet)
+    
+    for position in range(0, peptide_length):
+            
+        for peptide in train_peptides:
+    
+            c_matrix[position][peptide[position]] += 1
+
+    
+    
+    #observed frequencies matrix (f) 
+    f_matrix = initialize_matrix(peptide_length, alphabet)
+    
+    for position in range(0, peptide_length):
+      
+        n = 0;
+      
+        for peptide in train_peptides:
+        
+            f_matrix[position][peptide[position]] += weights[peptide]
+        
+            n += weights[peptide]
+            
+        for letter in alphabet: 
+            
+            f_matrix[position][letter] = f_matrix[position][letter]/n
+    
+    
+    #pseudo frequencies matrix (g)
+    g_matrix = initialize_matrix(peptide_length, alphabet)
+    
+    for position in range(0, peptide_length):
+    
+        for letter_1 in alphabet:
+            for letter_2 in alphabet:
+            
+                g_matrix[position][letter_1] += f_matrix[position][letter_2] * blosum62[letter_1][letter_2]
+    
+    
+    #combined frequencies matrix (p)
+    p_matrix = initialize_matrix(peptide_length, alphabet)
+
+    
+    for position in range(0, peptide_length):
+    
+        for a in alphabet:
+            p_matrix[position][a] = ((f_matrix[position][a] * alpha) + (g_matrix[position][a] * beta)) / (alpha + beta)
+    
+    
+    #log odds weight matrix (w)
+    w_matrix = initialize_matrix(peptide_length, alphabet)
+    
+    for position in range(0, peptide_length):
+        
+        for letter in alphabet:
+            if p_matrix[position][letter] > 0:
+                w_matrix[position][letter] = 2 * math.log(p_matrix[position][letter]/bg[letter])/math.log(2)
+            else:
+                w_matrix[position][letter] = -999.9
+    
+    
+    # Write out PSSM in Psi-Blast format to file
+    if not opt:
+        file_name = model_out_prefix + f"_{outer_iteration}.tab"
+        to_psi_blast_file(w_matrix, file_name)
+    
+      
+    test_predictions = []
+    for test_peptide in test_peptides:
+        test_predictions.append(score_peptide(test_peptide, w_matrix))
+
+
+    pcc_test = spearmanr(test_targets, test_predictions)
+
+
+    return pcc_test
+
+
+#main
+
              
 #load alphabet
 alphabet_file = data_dir + "Matrices/alphabet"
@@ -128,30 +257,42 @@ for i, letter_1 in enumerate(alphabet):
         
         blosum62[letter_1][letter_2] = _blosum62[i, j]
 
-    
-outer_cv_partitions = 5
-model_out_prefix = 'PPSM_mat'  
-best_mse_eval = (np.inf, -1)
+ 
+
 best_pcc_eval = (-np.inf, -1)
-#only param to optimize
-beta_vals = [50, 100, 150, 200]
-inner_model_track = []
-    
+
+model_track = []
+test_indices = []
+beta_track = []
+alpha_track = []
+
+#load dataset
+dataset_file = "final_data.txt"
+dataset_all = pd.read_csv(dataset_file, dtype=str)
+
+#assign weights based on hobohm 1 clustering
+weights = {}
+for i in range(len(dataset_all)):
+    weights[dataset_all.iloc[i]['peptide']] = float(dataset_all.iloc[i]['weight'])
+
+
 for outer_iteration in range(outer_cv_partitions):
     
-    #load dataset
-    dataset_file = f"A0201/f00{outer_iteration}"
-    dataset = pd.read_csv(dataset_file, dtype=str, header=None, sep='\s+')
+
+    evalset = dataset_all[dataset_all['evalset'] == str(outer_iteration)]
+    dataset = dataset_all[dataset_all['evalset'] != str(outer_iteration)]
     
     #keep track on used peptides in test set so they are not used again in another test set
     test_indices = []
     
-    inner_cv_partitions = 4
     len_partition = int(len(dataset)/inner_cv_partitions)
     
-    best_mse_test = (np.inf, -1)
+    
     best_pcc_test = (-np.inf, -1)
-
+    
+    beta_opt = []
+    alpha_opt = []
+    
     for iteration in range(inner_cv_partitions):
     
         #check which indices are remaining to pick from for testing
@@ -169,189 +310,65 @@ for outer_iteration in range(outer_cv_partitions):
         dataset_test = dataset.loc[sorted(test_partition_index)]
         
         #get values from dataframes, convert to nparrays 
-        train_peptides = dataset_train[0].values
-        train_targets = dataset_train[1].astype(float).values
-        test_peptides = dataset_test[0].values
-        test_targets = dataset_test[1].astype(float).values
-
-
-        peptide_length = len(train_peptides[0])
-        for i in range(0, len(train_peptides)):
-            if len(train_peptides[i]) != peptide_length:
-                print("Error, peptides differ in length!")
+        train_peptides = dataset_train['peptide'].values
+        train_targets = dataset_train['target'].astype(float).values
+        test_peptides = dataset_test['peptide'].values
+        test_targets = dataset_test['target'].astype(float).values
         
+        #print(f'Inner {iteration}')
         
-        #count matrix
-        c_matrix = initialize_matrix(peptide_length, alphabet)
-        
-        for position in range(0, peptide_length):
-                
-            for peptide in train_peptides:
-        
-                c_matrix[position][peptide[position]] += 1
-        
-        
-        #check, sum for each position should be len(peptides)
-        #print(sum(c_matrix[0].values()))
-        
-        
-        #sequence weighting
-        weights = {}
-        
-        for peptide in train_peptides:
-        
-            w = 0.0
-            neff = 0.0
+        for opt in range(len(vals)):
             
-            for position in range(0, peptide_length):
-        
-                r = 0
-        
-                for letter in alphabet:        
-        
-                    if c_matrix[position][letter] != 0:
-                        
-                        r += 1
-        
-                s = c_matrix[position][peptide[position]]
-        
-                w += 1.0/(r * s)
-        
-                neff += r
+            beta = vals[opt][0]
+            alpha = vals[opt][1]
+            
+            pcc = train(train_peptides, train_targets, test_peptides, test_targets, beta, alpha, opt)
                     
-            neff = neff / peptide_length
-           
-            weights[peptide] = w
-            
+            if pcc[0] > best_pcc_test[0]:
+                best_pcc_test = (pcc[0], opt)
+
+
+        print(f'\nIteration {outer_iteration} {iteration}')
+        print("Best PCC test: ", best_pcc_test[0])
+        print('Beta =', vals[best_pcc_test[1]][0])
+        print('Alpha =', vals[best_pcc_test[1]][1])
         
-        #check, sum of weights should be len(peptides[0])
-        #print(sum(weights.values()))
-        
-        
-        #observed frequencies matrix (f)
-        
-        f_matrix = initialize_matrix(peptide_length, alphabet)
-        
-        for position in range(0, peptide_length):
-          
-            n = 0;
-          
-            for peptide in train_peptides:
-            
-                f_matrix[position][peptide[position]] += weights[peptide]
-            
-                n += weights[peptide]
-                
-            for letter in alphabet: 
-                
-                f_matrix[position][letter] = f_matrix[position][letter]/n
-        
-        
-        #check, sum of pos values should be 1
-        #print(sum(f_matrix[0].values()))
-                  
-        
-        #pseudo frequencies matrix (g)
-        g_matrix = initialize_matrix(peptide_length, alphabet)
-        
-        for position in range(0, peptide_length):
-        
-            for letter_1 in alphabet:
-                for letter_2 in alphabet:
-                
-                    g_matrix[position][letter_1] += f_matrix[position][letter_2] * blosum62[letter_1][letter_2]
-        
-        
-        #combined frequencies matrix (p)
-        p_matrix = initialize_matrix(peptide_length, alphabet)
-        
-        alpha = neff - 1
-        beta = beta_vals[iteration]
-        
-        for position in range(0, peptide_length):
-        
-            for a in alphabet:
-                p_matrix[position][a] = ((f_matrix[position][a] * alpha) + (g_matrix[position][a] * beta)) / (alpha + beta)
-        
-        
-        #log odds weight matrix (w)
-        w_matrix = initialize_matrix(peptide_length, alphabet)
-        
-        for position in range(0, peptide_length):
-            
-            for letter in alphabet:
-                if p_matrix[position][letter] > 0:
-                    w_matrix[position][letter] = 2 * math.log(p_matrix[position][letter]/bg[letter])/math.log(2)
-                else:
-                    w_matrix[position][letter] = -999.9
-        
-        
-        # Write out PSSM in Psi-Blast format to file
-        file_name = model_out_prefix + f"_{outer_iteration}_{iteration}.tab"
-        to_psi_blast_file(w_matrix, file_name)
-        
-        
-        train_predictions = []
-        for train_peptide in train_peptides:
-            train_predictions.append(score_peptide(train_peptide, w_matrix))
-          
-        test_predictions = []
-        for test_peptide in test_peptides:
-            test_predictions.append(score_peptide(test_peptide, w_matrix))
-        
-        
-        scaled_train = MinMaxScaler(feature_range=(0,1)).fit_transform(np.array(train_predictions).reshape(-1, 1)).reshape(1,-1)[0]
-        scaled_test = MinMaxScaler(feature_range=(0,1)).fit_transform(np.array(test_predictions).reshape(-1, 1)).reshape(1,-1)[0]
-        
-        pcc_train = pearsonr(train_targets, scaled_train)
-        pcc_test = pearsonr(test_targets, scaled_test)
-        mse_train = 1/len(train_targets) * sum( (train_targets - scaled_train)**2 )
-        mse_test = 1/len(test_targets) * sum( (test_targets - scaled_test)**2 )
-        
-        if pcc_test[0] > best_pcc_test[0]:
-            best_pcc_test = (pcc_test[0], iteration)
-        if mse_test < best_mse_test[0]:
-            best_mse_test = (mse_test, iteration)        
-    
-        print(f'\nIteration {iteration}, beta={beta}')
-        print("PCC train: ", pcc_train[0])
-        print("MSE train:", mse_train)
-        print("PCC test: ", pcc_test[0])
-        print("MSE test:", mse_test)
-        #plt.scatter(test_targets, scaled_test)
+        beta_opt.append(vals[best_pcc_test[1]][0])
+        alpha_opt.append(vals[best_pcc_test[1]][1])
+        model_track.append((outer_iteration, iteration, opt))
     
     
-    best_model_ind = best_pcc_test[1]
-    beta = beta_vals[best_model_ind]
-    inner_model_track.append(best_model_ind)
+    train_outer_peptides = dataset['peptide'].values
+    train_outer_targets = dataset['target'].astype(float).values
     
-    matrix = from_psi_blast(model_out_prefix + f"_{outer_iteration}_{best_model_ind}.tab")
+    eval_peptides = evalset['peptide'].values
+    eval_targets = evalset['target'].astype(float).values
+
+    beta = mode(beta_opt)[0][0]
+    beta_track.append(beta)
+    alpha = mode(alpha_opt)[0][0]
+    alpha_track.append(alpha)
     
-    print(f'\nSelected model iteration {best_model_ind}')
+    pcc = train(train_outer_peptides, train_outer_targets, eval_peptides, eval_targets, beta, alpha, False)
     
-    eval_file = f"A0201/c00{outer_iteration}"
-    eval_dataset = pd.read_csv(eval_file, dtype=str, header=None, sep='\s+')
-    
-    eval_peptides = eval_dataset[0].values
-    eval_targets = eval_dataset[1].astype(float).values
+    matrix_file = model_out_prefix + f"_{outer_iteration}.tab"
+    matrix = from_psi_blast(matrix_file, len(train_outer_peptides[0]))
     
     eval_predictions = []
     for eval_peptide in eval_peptides:
         eval_predictions.append(score_peptide(eval_peptide, matrix))
 
-    scaled_eval = MinMaxScaler(feature_range=(0,1)).fit_transform(np.array(eval_predictions).reshape(-1, 1)).reshape(1,-1)[0]
     
-    pcc_eval = pearsonr(eval_targets, scaled_eval)
-    mse_eval = 1/len(eval_targets) * sum( (eval_targets - scaled_eval)**2 )
-    print(f'\nIteration {outer_iteration}, beta={beta}')
+    pcc_eval = spearmanr(eval_targets, eval_predictions)
+    print(f'\nIteration {outer_iteration}, beta={beta}, alpha={alpha}')
     print("PCC eval: ", pcc_eval[0])
-    print("MSE eval:", mse_eval)
+
     
     if pcc_eval[0] > best_pcc_eval[0]:
-        best_pcc_eval = (pcc_eval[0], iteration)
-    if mse_eval < best_mse_eval[0]:
-        best_mse_eval = (mse_eval, iteration)
+        best_pcc_eval = (pcc_eval[0], outer_iteration)
 
 
 best_model_ind = best_pcc_eval[1]
-print(f'\nBest model: Outer iteration {best_model_ind}, inner iteration {inner_model_track[best_model_ind]}, beta {beta_vals[inner_model_track[best_model_ind]]}')
+print(f'\nBest model: Outer iteration {best_model_ind}, beta {beta_track[best_model_ind]}, alpha {alpha_track[best_model_ind]}')
+print(f'Best PCC eval: {best_pcc_eval[0]}')
+
