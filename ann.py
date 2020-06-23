@@ -127,7 +127,7 @@ class ANN(nn.Module):
 
         o = self.fc(x) # (batch_size, out_units)
         o = self.fc_out(o) # (batch_size, n_out)
-        o = self.sigmoid(o)
+        o = self.sigmoid(o) # (batch_size, n_out) -> range now between 0 and 1
 
         return o
 
@@ -360,9 +360,9 @@ if __name__ == "__main__":
 
     # param grids
     param_grids = {
-        'out_units': np.arange(4, 13, step=4),
+        'out_units': np.arange(4, 17, step=4),
         'lr': [0.1, 0.01, 0.001],
-        'optimizer': ['SGD'], # , 'Adam'],
+        'optimizer': ['SGD' , 'Adam'],
         'p_dropout': np.arange(0, .3, step=0.1),
         'epochs': [1000],
         'use_early_stopping': [True, False], #, False],
